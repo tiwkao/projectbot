@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบลงทะเบียนสุดทันสมัย</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://static.line-scdn.net/liff/edge/versions/2.21.4/sdk.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        body {
+            font-family: 'Prompt', sans-serif;
+            background: linear-gradient(135deg, #e0e7ff 0%, #a5b4fc 100%);
+        }
+        #loadingOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            visibility: hidden;
+            transition: visibility 0.3s, opacity 0.3s;
+        }
+        #loadingOverlay.active {
+            visibility: visible;
+            opacity: 1;
+        }
+        .spinner-border {
+            border: 4px solid #ffffff;
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .input-field {
+            transition: all 0.3s ease;
+        }
+        .input-field:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+        .form-container {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .profile-image {
+            transition: transform 0.3s ease;
+        }
+        .profile-image:hover {
+            transform: scale(1.1);
+        }
+        #confirmationPopup {
+            position: fixed;
+            top: -100%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90%;
+            max-width: 400px;
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            transition: top 0.5s ease-in-out;
+        }
+        #confirmationPopup.active {
+            top: 20px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center">
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="opacity-0">
+        <div class="spinner-border rounded-full h-16 w-16"></div>
+    </div>
+
+    <!-- Confirmation Popup -->
+    <div id="confirmationPopup" class="p-6 hidden">
+        <div class="text-center">
+            <img id="popupProfileImage" class="w-20 h-20 rounded-full mx-auto mb-4" alt="Profile">
+            <h2 id="popupMessage" class="text-lg font-semibold text-gray-800"></h2>
+            <div id="popupDetails" class="text-sm text-gray-600 mt-2"></div>
+            <button id="closePopup" class="mt-4 bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700">ปิด</button>
+        </div>
+    </div>
+
+    <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md form-container">
+        <!-- Profile Info -->
+        <div id="profileInfo" class="text-center mb-8 hidden">
+            <img id="profileImage" class="w-24 h-24 rounded-full mx-auto mb-4 profile-image" alt="Profile">
+            <h2 id="profileName" class="text-2xl font-semibold text-gray-800"></h2>
+        </div>
+
+        <h1 class="text-3xl font-bold text-center mb-8 text-gray-800">ลงทะเบียนง่าย ๆ สไตล์ทันสมัย</h1>
+        <form id="dataForm" class="space-y-6">
+            <input type="hidden" name="userId" id="userId">
+            <input type="hidden" name="lineName" id="lineName">
+            <div>
+                <label for="name" class="block text-gray-700 font-medium">ชื่อ-นามสกุล</label>
+                <input type="text" name="name" id="name" class="w-full p-3 border rounded-lg input-field focus:outline-none focus:ring" placeholder="กรอกชื่อ-นามสกุล" required>
+            </div>
+            <div>
+                <label for="email" class="block text-gray-700 font-medium">อีเมล</label>
+                <input type="email" name="email" id="email" class="w-full p-3 border rounded-lg input-field focus:outline-none focus:ring" placeholder="กรอกอีเมล" required>
+            </div>
+            <div>
+                <label for="phone" class="block text-gray-700 font-medium">เบอร์โทรศัพท์</label>
+                <input type="tel" name="phone" id="phone" class="w-full p-3 border rounded-lg input-field focus:outline-none focus:ring" placeholder="กรอกเบอร์โทรศัพท์" required>
+            </div>
+            <button type="submit" id="submitButton" class="w-full bg-gradient-to-r from-indigo-500 to-blue-600 text-white py-3 px-4 rounded-lg hover:from-indigo-600 hover:to-blue-700 transition duration-300 transform hover:-translate-y-1">
+                ส่งข้อมูล
+            </button>
+        </form>
+    </div>
+
+    <script>
+        const form = document.getElementById("dataForm");
+        const submitButton = document.getElementById("submitButton");
+        const loadingOverlay = document.getElementById("loadingOverlay");
+        const profileInfo = document.getElementById("profileInfo");
+        const profileName = document.getElementById("profileName");
+        const profileImage = document.getElementById("profileImage");
+        const userIdInput = document.getElementById("userId");
+        const lineNameInput = document.getElementById("lineName");
+        const confirmationPopup = document.getElementById("confirmationPopup");
+        const popupProfileImage = document.getElementById("popupProfileImage");
+        const popupMessage = document.getElementById("popupMessage");
+        const popupDetails = document.getElementById("popupDetails");
+        const closePopup = document.getElementById("closePopup");
+
+        let profilePicUrl = '';
+
+        // Initialize LIFF
+        async function initLIFF() {
+            try {
+                await liff.init({ liffId: "xxxxxxxxxxxx" });
+                if (liff.isLoggedIn()) {
+                    const profile = await liff.getProfile();
+                    userIdInput.value = profile.userId;
+                    profileName.textContent = profile.displayName;
+                    profileImage.src = profile.pictureUrl || 'https://via.placeholder.com/150';
+                    profilePicUrl = profile.pictureUrl || 'https://via.placeholder.com/150';
+                    lineNameInput.value = profile.displayName;
+                    profileInfo.classList.remove("hidden");
+                } else {
+                    liff.login();
+                }
+            } catch (error) {
+                console.error("LIFF Initialization Failed", error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'ข้อผิดพลาด',
+                    text: 'ไม่สามารถเริ่มต้นระบบได้ กรุณาลองใหม่',
+                });
+            }
+        }
+
+        // Function to send Flex Message
+        async function sendFlexMessage(formData) {
+            try {
+                const flexMessage = {
+                    "type": "flex",
+                    "altText": "ยืนยันการลงทะเบียน - " + formData.name,
+                    "contents": {
+                        "type": "bubble",
+                        "hero": {
+                            "type": "image",
+                            "url": profilePicUrl,
+                            "size": "full",
+                            "aspectRatio": "20:13",
+                            "aspectMode": "cover",
+                            "action": {
+                                "type": "uri",
+                                "uri": "https://line.me/"
+                            }
+                        },
+                        "body": {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": [
+                                {
+                                    "type": "text",
+                                    "text": "✅ ลงทะเบียนสำเร็จ!",
+                                    "weight": "bold",
+                                    "size": "xl",
+                                    "align": "center",
+                                    "color": "#10b981",
+                                    "margin": "md"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": `ขอบคุณคุณ ${formData.lineName}`,
+                                    "size": "lg",
+                                    "align": "center",
+                                    "color": "#1e40af",
+                                    "weight": "bold",
+                                    "margin": "sm"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "เราได้รับข้อมูลของคุณแล้ว",
+                                    "size": "sm",
+                                    "align": "center",
+                                    "color": "#6b7280",
+                                    "margin": "xs"
+                                },
+                                {
+                                    "type": "separator",
+                                    "margin": "lg",
+                                    "color": "#e5e7eb"
+                                },
+                                {
+                                    "type": "box",
+                                    "layout": "vertical",
+                                    "spacing": "sm",
+                                    "margin": "lg",
+                                    "contents": [
+                                        {
+                                            "type": "box",
+                                            "layout": "horizontal",
+                                            "contents": [
+                                                {
+                                                    "type": "text",
+                                                    "text": "👤 ชื่อ:",
+                                                    "size": "sm",
+                                                    "color": "#6b7280",
+                                                    "flex": 0,
+                                                    "weight": "bold"
+                                                },
+                                                {
+                                                    "type": "text",
+                                                    "text": formData.name,
+                                                    "size": "sm",
+                                                    "color": "#111827",
+                                                    "wrap": true,
+                                                    "flex": 1,
+                                                    "margin": "sm"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "type": "box",
+                                            "layout": "horizontal",
+                                            "contents": [
+                                                {
+                                                    "type": "text",
+                                                    "text": "📧 อีเมล:",
+                                                    "size": "sm",
+                                                    "color": "#6b7280",
+                                                    "flex": 0,
+                                                    "weight": "bold"
+                                                },
+                                                {
+                                                    "type": "text",
+                                                    "text": formData.email,
+                                                    "size": "sm",
+                                                    "color": "#111827",
+                                                    "wrap": true,
+                                                    "flex": 1,
+                                                    "margin": "sm"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "type": "box",
+                                            "layout": "horizontal",
+                                            "contents": [
+                                                {
+                                                    "type": "text",
+                                                    "text": "📱 เบอร์:",
+                                                    "size": "sm",
+                                                    "color": "#6b7280",
+                                                    "flex": 0,
+                                                    "weight": "bold"
+                                                },
+                                                {
+                                                    "type": "text",
+                                                    "text": formData.phone,
+                                                    "size": "sm",
+                                                    "color": "#111827",
+                                                    "wrap": true,
+                                                    "flex": 1,
+                                                    "margin": "sm"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "type": "box",
+                                            "layout": "horizontal",
+                                            "contents": [
+                                                {
+                                                    "type": "text",
+                                                    "text": "🕐 เวลา:",
+                                                    "size": "sm",
+                                                    "color": "#6b7280",
+                                                    "flex": 0,
+                                                    "weight": "bold"
+                                                },
+                                                {
+                                                    "type": "text",
+                                                    "text": new Date().toLocaleString('th-TH'),
+                                                    "size": "sm",
+                                                    "color": "#111827",
+                                                    "flex": 1,
+                                                    "margin": "sm"
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        "footer": {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": [
+                                {
+                                    "type": "button",
+                                    "action": {
+                                        "type": "uri",
+                                        "label": "🌐 เยี่ยมชมเว็บไซต์",
+                                        "uri": "https://line.me/"
+                                    },
+                                    "style": "primary",
+                                    "color": "#4f46e5",
+                                    "height": "sm"
+                                }
+                            ]
+                        },
+                        "styles": {
+                            "body": {
+                                "backgroundColor": "#f9fafb",
+                                "separator": true,
+                                "separatorColor": "#e5e7eb"
+                            },
+                            "footer": {
+                                "separator": true,
+                                "separatorColor": "#e5e7eb"
+                            }
+                        }
+                    }
+                };
+
+                console.log("Sending Flex Message...");
+                await liff.sendMessages([flexMessage]);
+                console.log("Flex Message sent successfully");
+                return true;
+            } catch (error) {
+                console.error("Error sending Flex Message:", error);
+                throw error;
+            }
+        }
+
+        // Form submission handler
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            // Show loading
+            loadingOverlay.classList.add("active");
+            submitButton.disabled = true;
+            submitButton.textContent = "กำลังส่งข้อมูล...";
+
+            // Get form data
+            const formData = {
+                name: document.getElementById("name").value,
+                email: document.getElementById("email").value,
+                phone: document.getElementById("phone").value,
+                userId: document.getElementById("userId").value,
+                lineName: document.getElementById("lineName").value
+            };
+
+            try {
+                // 1. Send data to Google Apps Script
+                console.log("Sending data to Google Apps Script...");
+                const scriptResponse = await fetch('https://script.google.com/macros/s/AKfycbxM3ZLzPMqp_joauw5wDG01V4uwr1i_-UAacVa0T8VyoimMHWL0X5r6hhFdPp9M63qe/exec', {
+                    method: "POST",
+                    body: new FormData(form)
+                });
+
+                const scriptResult = await scriptResponse.text();
+                console.log("Google Apps Script response:", scriptResult);
+
+                // 2. Send Flex Message
+                console.log("Sending Flex Message...");
+                await sendFlexMessage(formData);
+
+                // 3. Show confirmation popup
+                popupProfileImage.src = profilePicUrl;
+                popupMessage.textContent = `ขอบคุณคุณ ${formData.lineName}!`;
+                popupDetails.innerHTML = `
+                    <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-3">
+                        <p class="text-green-800 text-sm font-medium">✅ ส่งข้อมูลสำเร็จแล้ว</p>
+                    </div>
+                    <div class="text-left space-y-1">
+                        <p class="text-sm"><span class="font-medium">ชื่อ:</span> ${formData.name}</p>
+                        <p class="text-sm"><span class="font-medium">อีเมล:</span> ${formData.email}</p>
+                        <p class="text-sm"><span class="font-medium">เบอร์โทร:</span> ${formData.phone}</p>
+                        <p class="text-sm"><span class="font-medium">เวลา:</span> ${new Date().toLocaleString('th-TH')}</p>
+                    </div>
+                `;
+
+                confirmationPopup.classList.remove("hidden");
+                confirmationPopup.classList.add("active");
+
+                // 4. Show success alert
+                Swal.fire({
+                    icon: 'success',
+                    title: 'บันทึกข้อมูลสำเร็จ!',
+                    text: 'ข้อมูลของคุณถูกบันทึกและส่งข้อความยืนยันไปยัง LINE แล้ว',
+                    confirmButtonColor: '#4f46e5'
+                });
+                liff.closeWindow();
+
+            } catch (error) {
+                console.error("Error in form submission:", error);
+
+                // Show error alert
+                Swal.fire({
+                    icon: 'error',
+                    title: 'เกิดข้อผิดพลาด',
+                    text: 'ไม่สามารถส่งข้อมูลได้ กรุณาลองใหม่อีกครั้ง',
+                    confirmButtonColor: '#ef4444'
+                });
+            } finally {
+                // Hide loading and reset button
+                loadingOverlay.classList.remove("active");
+                submitButton.disabled = false;
+                submitButton.textContent = "ส่งข้อมูล";
+            }
+        });
+
+        // Close popup handler
+        closePopup.addEventListener('click', () => {
+            confirmationPopup.classList.remove("active");
+            setTimeout(() => {
+                confirmationPopup.classList.add("hidden");
+                form.reset();
+            }, 500);
+        });
+
+        // Initialize LIFF when page loads
+        window.onload = initLIFF;
+    </script>
+</body>
+</html>
